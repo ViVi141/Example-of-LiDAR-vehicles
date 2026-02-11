@@ -10,7 +10,7 @@
 // ---- Demo config (vehicle LiDAR: 1024 rays, 30m, 10 Hz, 120°×19° rect FOV) ----
 // 设为 true 时：在地面（玩家）也运行，用于测试框架是否正常
 // When true: also run on foot (player), for testing framework
-static bool s_TestOnFoot = true;
+static bool s_TestOnFoot = false;
 
 static int s_SessionCounter = 0;
 
@@ -30,7 +30,7 @@ static int s_RectCols = 64;
 static int s_RectRows = 16;
 
 // 扫描但不可视化 / Scan without visualization
-static bool s_ScanWithoutVisualization = true;
+static bool s_ScanWithoutVisualization = false;
 
 // 是否输出 CSV 到磁盘 / Output CSV to disk
 static bool s_OutputCSV = false;
@@ -39,7 +39,7 @@ static bool s_OutputCSV = false;
 static float s_CSVFlushInterval = 1.0;
 
 // 检测目标：0=仅玩家, 1=仅载具, 2=两者 / Target: 0=player only, 1=vehicle only, 2=both
-static int s_TargetMode = 2;
+static int s_TargetMode = 1;
 
 modded class SCR_PlayerController
 {
