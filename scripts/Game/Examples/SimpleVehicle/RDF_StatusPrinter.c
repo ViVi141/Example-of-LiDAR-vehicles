@@ -9,8 +9,8 @@ class RDF_StatusPrinter
     {
     }
 
-    // 由 modded SCR_PlayerController 每帧调用，累积时间到间隔后执行一次打印。
-    // Called by modded SCR_PlayerController each frame; prints when interval elapsed.
+    // 由 modded SCR_BaseGameMode 每帧调用，累积时间到间隔后执行一次打印。
+    // Called by modded SCR_BaseGameMode each frame; prints when interval elapsed.
     void Tick(float timeSlice)
     {
         m_AccumulatedTime = m_AccumulatedTime + timeSlice;
@@ -51,17 +51,3 @@ class RDF_StatusPrinter
 }
 
 ref RDF_StatusPrinter g_RDF_StatusPrinter = new RDF_StatusPrinter();
-
-modded class SCR_PlayerController
-{
-    override void EOnFrame(IEntity owner, float timeSlice)
-    {
-        super.EOnFrame(owner, timeSlice);
-        if (!GetGame())
-            return;
-        if (GetGame().GetPlayerController() != this)
-            return;
-        if (g_RDF_StatusPrinter)
-            g_RDF_StatusPrinter.Tick(timeSlice);
-    }
-}

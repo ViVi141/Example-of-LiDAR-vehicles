@@ -17,8 +17,8 @@ Shows how to bind LiDAR to an actual vehicle (or the player's vehicle) and perfo
 
 **自动 Bootstrap（已编译并随 addon 加载）/ Auto Bootstrap (compiled with addon)**:
 
-- `RDF_VehicleLidarBootstrap.c` 为 modded SCR_PlayerController，在 EOnFrame 中按 `s_UpdateInterval` 检测玩家是否在载具内，上车启用 LiDAR，下车自动停用。不依赖 GetCallqueue，使用定时循环自动检测玩家状态。
-  Modded SCR_PlayerController; checks vehicle state in EOnFrame at s_UpdateInterval; enables LiDAR on enter, disables on exit.
+- `RDF_VehicleLidarBootstrap.c` 为 modded SCR_BaseGameMode，在 EOnFrame 中按 `s_UpdateInterval` 检测玩家是否在载具内，上车启用 LiDAR，下车自动停用。不依赖 GetCallqueue，使用定时循环自动检测玩家状态。
+  Modded SCR_BaseGameMode; checks vehicle state in EOnFrame at s_UpdateInterval; enables LiDAR on enter, disables on exit.
 - **默认配置 / Default config**: 1024 射线、30 m 探测、10 Hz、120°×19° 矩形视场（64×16 分辨率）、RDF_RectangularFOVSampleStrategy。
 - **可配置项**（在 `RDF_VehicleLidarBootstrap.c` 顶部修改）/ **Config** (edit top of file):
   - `s_RayCount`：射线数量 / Ray count
@@ -34,6 +34,8 @@ Shows how to bind LiDAR to an actual vehicle (or the player's vehicle) and perfo
 **运行脚本位置 / Script location**: `scripts/Game/Examples/SimpleVehicle/`。请确保该路径已包含在 `addon.gproj` 的编译输入中。Ensure path is in `addon.gproj` for compilation.
 
 **注意 / Note**: 本 addon 在脚本加载时自动启用车载 bootstrap。可通过控制台或修改配置调整。Addon auto-enables vehicle bootstrap on load; adjust via console or config.
+
+**游戏模式 / Game mode**: 使用 `modded SCR_BaseGameMode`，支持所有基于 SCR_BaseGameMode 的场景。Uses modded SCR_BaseGameMode; supports all SCR_BaseGameMode-based scenarios.
 
 ---
 

@@ -5,6 +5,9 @@
 // 若载具检测失败，回退到玩家主体（测试框架是否正常）。Fallback to player if vehicle detection fails.
 // 循环检测：每帧 EOnFrame 检查依赖，遇 null 则跳过本帧，等待下一帧重试，避免崩溃。
 // Loop check: EOnFrame per frame; skip on null, retry next frame to avoid crash.
+//
+// 使用 modded SCR_BaseGameMode 的 EOnFrame 驱动，支持所有基于 SCR_BaseGameMode 的游戏模式（工作台、Conflict、Campaign 等）。
+// Uses modded SCR_BaseGameMode EOnFrame; supports all SCR_BaseGameMode-based game modes (Workbench, Conflict, Campaign, etc.).
 
 // ---- Demo 配置（游戏用车载 LiDAR：1024 射线、30m、10 Hz、120°×19° 矩形视场） ----
 // ---- Demo config (vehicle LiDAR: 1024 rays, 30m, 10 Hz, 120°×19° rect FOV) ----
@@ -41,38 +44,35 @@ static float s_CSVFlushInterval = 1.0;
 // 检测目标：0=仅玩家, 1=仅载具, 2=两者 / Target: 0=player only, 1=vehicle only, 2=both
 static int s_TargetMode = 1;
 
-modded class SCR_PlayerController
+// 静态状态（GameMode 为单例，用静态存储）
+// Static state (GameMode is singleton)
+static bool s_RDFVL_Active = false;
+static IEntity s_RDFVL_Subject;
+static ref RDF_LidarVisualizer s_RDFVL_Visualizer;
+static ref RDF_LidarScanner s_RDFVL_Scanner;
+static string s_RDFVL_ExportPath = "";
+static float s_RDFVL_ScanAccum = 0.0;
+static float s_RDFVL_FlushAccum = 0.0;
+static ref array<string> s_RDFVL_CSVBuffer;
+static int s_RDFVL_FrameIndex = 0;
+static int s_RDFVL_ScanId = 0;
+static vector s_RDFVL_LastSubjectPos = vector.Zero;
+static float s_RDFVL_LastSubjectTime = -1.0;
+static bool s_RDFVL_InitPending = false;
+static ref array<ref RDF_LidarSample> s_RDFVL_ScanOnlySamples;
+static ref array<ref RDF_LidarSample> s_RDFVL_LastSamples;
+
+modded class SCR_BaseGameMode
 {
-    protected bool m_Active = false;
-    protected IEntity m_Subject;
-    protected ref RDF_LidarVisualizer m_Visualizer;
-    protected ref RDF_LidarScanner m_Scanner;
-    protected FileHandle m_ExportFile;
-    protected string m_ExportPath;
-    protected float m_ScanAccum = 0.0;
-    protected float m_FlushAccum = 0.0;
-    protected ref array<string> m_CSVBuffer;
-    protected int m_FrameIndex = 0;
-    protected int m_ScanId = 0;
-    protected vector m_LastSubjectPos = vector.Zero;
-    protected float m_LastSubjectTime = -1.0;
-    protected bool m_InitPending = false;
-    protected ref array<ref RDF_LidarSample> m_ScanOnlySamples;
-
-    override void EOnInit(IEntity owner)
-    {
-        super.EOnInit(owner);
-    }
-
     override void EOnFrame(IEntity owner, float timeSlice)
     {
         super.EOnFrame(owner, timeSlice);
         if (!GetGame())
             return;
-        if (!owner)
-            return;
+        if (g_RDF_StatusPrinter)
+            g_RDF_StatusPrinter.Tick(timeSlice);
         PlayerController ctrl = GetGame().GetPlayerController();
-        if (!ctrl || ctrl != this)
+        if (!ctrl)
             return;
         IEntity playerSubject = ctrl.GetControlledEntity();
         if (!playerSubject)
@@ -103,46 +103,46 @@ modded class SCR_PlayerController
         }
         if (!subject)
             return;
-        if (shouldRun && !m_Active)
+        if (shouldRun && !s_RDFVL_Active)
         {
-            if (!m_InitPending)
+            if (!s_RDFVL_InitPending)
             {
-                m_InitPending = true;
+                s_RDFVL_InitPending = true;
                 return;
             }
-            m_InitPending = false;
-            m_Active = true;
-            m_Subject = subject;
+            s_RDFVL_InitPending = false;
+            s_RDFVL_Active = true;
+            s_RDFVL_Subject = subject;
             RDF_LidarSettings settings = new RDF_LidarSettings();
             settings.m_RayCount = s_RayCount;
             settings.m_Range = s_Range;
             settings.m_UpdateInterval = s_UpdateInterval;
-            m_Scanner = new RDF_LidarScanner(settings);
-            m_Scanner.SetSampleStrategy(new RDF_RectangularFOVSampleStrategy(s_RectFOVHorizDeg, s_RectFOVVertDeg, s_RectCols, s_RectRows));
+            s_RDFVL_Scanner = new RDF_LidarScanner(settings);
+            s_RDFVL_Scanner.SetSampleStrategy(new RDF_RectangularFOVSampleStrategy(s_RectFOVHorizDeg, s_RectFOVVertDeg, s_RectCols, s_RectRows));
             if (!s_ScanWithoutVisualization)
             {
-                m_Visualizer = new RDF_LidarVisualizer();
-                RDF_LidarVisualSettings vs = m_Visualizer.GetSettings();
+                s_RDFVL_Visualizer = new RDF_LidarVisualizer();
+                RDF_LidarVisualSettings vs = s_RDFVL_Visualizer.GetSettings();
                 vs.m_DrawPoints = true;
                 vs.m_DrawRays = true;
                 vs.m_RenderWorld = true;
                 vs.m_UseDistanceGradient = false;
-                m_Visualizer.SetColorStrategy(new RDF_ThreeColorStrategy(0xFF00FF00, 0xFFFFFF00, 0xFFFF0000));
+                s_RDFVL_Visualizer.SetColorStrategy(new RDF_ThreeColorStrategy(0xFF00FF00, 0xFFFFFF00, 0xFFFF0000));
             }
             else
             {
-                m_Visualizer = null;
-                m_ScanOnlySamples = new array<ref RDF_LidarSample>();
+                s_RDFVL_Visualizer = null;
+                s_RDFVL_ScanOnlySamples = new array<ref RDF_LidarSample>();
             }
-            m_ExportPath = "";
+            s_RDFVL_ExportPath = "";
             if (s_OutputCSV)
             {
                 FileIO.MakeDirectory("$profile:LiDAR");
                 s_SessionCounter = s_SessionCounter + 1;
-                m_ScanId = s_SessionCounter;
-                m_FrameIndex = 0;
-                m_ExportPath = "$profile:LiDAR/lidar_live_" + s_SessionCounter.ToString() + ".csv";
-                FileHandle fh = FileIO.OpenFile(m_ExportPath, FileMode.WRITE);
+                s_RDFVL_ScanId = s_SessionCounter;
+                s_RDFVL_FrameIndex = 0;
+                s_RDFVL_ExportPath = "$profile:LiDAR/lidar_live_" + s_SessionCounter.ToString() + ".csv";
+                FileHandle fh = FileIO.OpenFile(s_RDFVL_ExportPath, FileMode.WRITE);
                 if (fh)
                 {
                     string header = RDF_LidarExport.GetExtendedCSVHeader();
@@ -152,75 +152,95 @@ modded class SCR_PlayerController
                 }
                 else
                 {
-                    m_ExportPath = "";
+                    s_RDFVL_ExportPath = "";
                     Print("RDF: CSV file open failed.");
                 }
             }
-            m_ExportFile = null;
-            m_ScanAccum = s_UpdateInterval;
-            m_FlushAccum = 0.0;
+            s_RDFVL_ScanAccum = s_UpdateInterval;
+            s_RDFVL_FlushAccum = 0.0;
             if (s_OutputCSV)
-                m_CSVBuffer = new array<string>();
+                s_RDFVL_CSVBuffer = new array<string>();
             else
-                m_CSVBuffer = null;
+                s_RDFVL_CSVBuffer = null;
         }
-        else if (shouldRun && m_Active)
+        else if (shouldRun && s_RDFVL_Active)
         {
-            if (m_Subject != subject)
-                m_LastSubjectTime = -1.0;
-            m_Subject = subject;
+            if (s_RDFVL_Subject != subject)
+                s_RDFVL_LastSubjectTime = -1.0;
+            s_RDFVL_Subject = subject;
         }
-        else if (!shouldRun && m_Active)
+        else if (!shouldRun && s_RDFVL_Active)
         {
-            m_InitPending = false;
-            m_Active = false;
-            if (m_CSVBuffer && m_CSVBuffer.Count() > 0 && m_ExportPath != "")
+            s_RDFVL_InitPending = false;
+            s_RDFVL_Active = false;
+            if (s_RDFVL_CSVBuffer && s_RDFVL_CSVBuffer.Count() > 0 && s_RDFVL_ExportPath != "")
             {
-                FileHandle f = FileIO.OpenFile(m_ExportPath, FileMode.APPEND);
+                FileHandle f = FileIO.OpenFile(s_RDFVL_ExportPath, FileMode.APPEND);
                 if (f)
                 {
-                    for (int i = 0; i < m_CSVBuffer.Count(); i++)
-                        f.WriteLine(m_CSVBuffer.Get(i));
+                    for (int i = 0; i < s_RDFVL_CSVBuffer.Count(); i++)
+                        f.WriteLine(s_RDFVL_CSVBuffer.Get(i));
                     f.Close();
                 }
             }
-            m_ExportPath = "";
-            m_ExportFile = null;
-            m_CSVBuffer = null;
-            m_ScanOnlySamples = null;
-            m_FlushAccum = 0.0;
-            m_Subject = null;
-            m_Scanner = null;
-            m_Visualizer = null;
-            m_ScanAccum = 0.0;
-            m_FrameIndex = 0;
-            m_LastSubjectTime = -1.0;
+            s_RDFVL_ExportPath = "";
+            s_RDFVL_CSVBuffer = null;
+            s_RDFVL_ScanOnlySamples = null;
+            s_RDFVL_LastSamples = null;
+            s_RDFVL_FlushAccum = 0.0;
+            s_RDFVL_Subject = null;
+            s_RDFVL_Scanner = null;
+            s_RDFVL_Visualizer = null;
+            s_RDFVL_ScanAccum = 0.0;
+            s_RDFVL_FrameIndex = 0;
+            s_RDFVL_LastSubjectTime = -1.0;
         }
 
-        if (m_Active && m_Scanner && m_Subject)
+        if (s_RDFVL_Active && s_RDFVL_Scanner && s_RDFVL_Subject)
         {
-            if (!m_Subject || !m_Scanner)
+            if (!s_RDFVL_Subject || !s_RDFVL_Scanner)
                 return;
-            m_ScanAccum = m_ScanAccum + timeSlice;
-            m_FlushAccum = m_FlushAccum + timeSlice;
-            if (m_ScanAccum < s_UpdateInterval)
-                return;
-            m_ScanAccum = 0.0;
+            s_RDFVL_ScanAccum = s_RDFVL_ScanAccum + timeSlice;
+            s_RDFVL_FlushAccum = s_RDFVL_FlushAccum + timeSlice;
             ref array<ref RDF_LidarSample> samples = null;
-            if (s_ScanWithoutVisualization && m_ScanOnlySamples)
+            bool didScan = false;
+            if (s_RDFVL_ScanAccum >= s_UpdateInterval)
             {
-                m_ScanOnlySamples.Clear();
-                m_Scanner.Scan(m_Subject, m_ScanOnlySamples);
-                samples = m_ScanOnlySamples;
+                s_RDFVL_ScanAccum = 0.0;
+                if (s_ScanWithoutVisualization && s_RDFVL_ScanOnlySamples)
+                {
+                    s_RDFVL_ScanOnlySamples.Clear();
+                    s_RDFVL_Scanner.Scan(s_RDFVL_Subject, s_RDFVL_ScanOnlySamples);
+                    samples = s_RDFVL_ScanOnlySamples;
+                    didScan = true;
+                }
+                else if (s_RDFVL_Visualizer)
+                {
+                    s_RDFVL_Visualizer.Render(s_RDFVL_Subject, s_RDFVL_Scanner);
+                    samples = s_RDFVL_Visualizer.GetLastSamples();
+                    didScan = true;
+                }
             }
-            else if (m_Visualizer)
+            else if (s_RDFVL_Visualizer && s_RDFVL_LastSamples && s_RDFVL_LastSamples.Count() > 0)
             {
-                m_Visualizer.Render(m_Subject, m_Scanner);
-                samples = m_Visualizer.GetLastSamples();
+                // 扫描间隔内每帧重绘，避免 ShapeFlags.ONCE 导致的闪烁
+                // Redraw every frame between scans to avoid flicker from ShapeFlags.ONCE
+                s_RDFVL_Visualizer.RenderWithSamples(s_RDFVL_Subject, s_RDFVL_LastSamples);
+                samples = s_RDFVL_LastSamples;
+            }
+            if (didScan && samples && s_RDFVL_Visualizer)
+            {
+                s_RDFVL_LastSamples = new array<ref RDF_LidarSample>();
+                for (int i = 0; i < samples.Count(); i++)
+                {
+                    RDF_LidarSample s = samples.Get(i);
+                    if (s)
+                        s_RDFVL_LastSamples.Insert(s);
+                }
             }
             if (!samples)
                 return;
-            if (m_ExportPath != "" && samples && samples.Count() > 0 && m_CSVBuffer)
+            if (didScan && s_RDFVL_ExportPath != "" && samples && samples.Count() > 0 && s_RDFVL_CSVBuffer)
             {
                 if (!GetGame())
                     return;
@@ -228,55 +248,55 @@ modded class SCR_PlayerController
                 float currentTime = 0.0;
                 if (w)
                     currentTime = w.GetWorldTime();
-                float maxRange = m_Scanner.GetSettings().m_Range;
+                float maxRange = s_RDFVL_Scanner.GetSettings().m_Range;
                 vector subjectVel = vector.Zero;
-                SCR_CharacterControllerComponent charCtrl = SCR_CharacterControllerComponent.Cast(m_Subject.FindComponent(SCR_CharacterControllerComponent));
+                SCR_CharacterControllerComponent charCtrl = SCR_CharacterControllerComponent.Cast(s_RDFVL_Subject.FindComponent(SCR_CharacterControllerComponent));
                 if (charCtrl)
                     subjectVel = charCtrl.GetVelocity();
                 else
                 {
-                    vector pos = m_Subject.GetOrigin();
-                    if (m_LastSubjectTime >= 0.0)
+                    vector pos = s_RDFVL_Subject.GetOrigin();
+                    if (s_RDFVL_LastSubjectTime >= 0.0)
                     {
-                        float dtMs = currentTime - m_LastSubjectTime;
+                        float dtMs = currentTime - s_RDFVL_LastSubjectTime;
                         if (dtMs > 10.0)
                         {
                             float dtSec = dtMs / 1000.0;
-                            subjectVel = (pos - m_LastSubjectPos) / dtSec;
+                            subjectVel = (pos - s_RDFVL_LastSubjectPos) / dtSec;
                         }
                     }
-                    m_LastSubjectPos = pos;
-                    m_LastSubjectTime = currentTime;
+                    s_RDFVL_LastSubjectPos = pos;
+                    s_RDFVL_LastSubjectTime = currentTime;
                 }
                 float subjectYaw = 0.0;
                 float subjectPitch = 0.0;
                 vector worldMat[4];
-                m_Subject.GetWorldTransform(worldMat);
+                s_RDFVL_Subject.GetWorldTransform(worldMat);
                 vector fwd = worldMat[0];
                 float horiz = Math.Sqrt(fwd[0] * fwd[0] + fwd[1] * fwd[1]);
                 subjectYaw = Math.Atan2(fwd[1], fwd[0]);
                 subjectPitch = Math.Atan2(-fwd[2], horiz);
-                m_FrameIndex = m_FrameIndex + 1;
+                s_RDFVL_FrameIndex = s_RDFVL_FrameIndex + 1;
                 for (int i = 0; i < samples.Count(); i++)
                 {
                     RDF_LidarSample s = samples.Get(i);
                     if (s)
                     {
-                        string row = RDF_LidarExport.SampleToExtendedCSVRow(s, currentTime, maxRange, subjectVel, subjectYaw, subjectPitch, m_ScanId, m_FrameIndex);
+                        string row = RDF_LidarExport.SampleToExtendedCSVRow(s, currentTime, maxRange, subjectVel, subjectYaw, subjectPitch, s_RDFVL_ScanId, s_RDFVL_FrameIndex);
                         if (row != "")
-                            m_CSVBuffer.Insert(row);
+                            s_RDFVL_CSVBuffer.Insert(row);
                     }
                 }
-                if (m_FlushAccum >= s_CSVFlushInterval)
+                if (s_RDFVL_FlushAccum >= s_CSVFlushInterval)
                 {
-                    m_FlushAccum = 0.0;
-                    FileHandle f = FileIO.OpenFile(m_ExportPath, FileMode.APPEND);
+                    s_RDFVL_FlushAccum = 0.0;
+                    FileHandle f = FileIO.OpenFile(s_RDFVL_ExportPath, FileMode.APPEND);
                     if (f)
                     {
-                        for (int j = 0; j < m_CSVBuffer.Count(); j++)
-                            f.WriteLine(m_CSVBuffer.Get(j));
+                        for (int j = 0; j < s_RDFVL_CSVBuffer.Count(); j++)
+                            f.WriteLine(s_RDFVL_CSVBuffer.Get(j));
                         f.Close();
-                        m_CSVBuffer.Clear();
+                        s_RDFVL_CSVBuffer.Clear();
                     }
                 }
             }

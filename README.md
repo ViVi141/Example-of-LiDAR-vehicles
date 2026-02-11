@@ -67,6 +67,8 @@ Examples/SimpleVehicle/               # 示例与文档 / Examples and docs
 3. LiDAR 自动启用（可修改 `RDF_VehicleLidarBootstrap.c` 顶部配置）
    LiDAR enables automatically (edit top of `RDF_VehicleLidarBootstrap.c` to change config).
 
+**游戏模式 / Game mode**: 使用 `modded SCR_BaseGameMode` 的 EOnFrame 驱动，支持所有基于 SCR_BaseGameMode 的场景（工作台、Conflict、Campaign 等）。Uses modded SCR_BaseGameMode EOnFrame; supports all SCR_BaseGameMode-based scenarios.
+
 CSV 输出路径 / CSV output path: `$profile:LiDAR/lidar_live_N.csv`
 
 ---
