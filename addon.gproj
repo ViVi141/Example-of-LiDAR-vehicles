@@ -1,0 +1,8 @@
+GameProject {
+ ID "ExampleofLiDARvehicles"
+ GUID "6896E11A7CBD40B1"
+ TITLE "Example of LiDAR vehicles"
+ Dependencies {
+  "6892AB0669DF29AA" "58D0FB3206B6F859"
+ }
+}
