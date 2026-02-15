@@ -53,6 +53,7 @@ static int s_TargetMode = 1;
 static bool s_RDFVL_Active = false;
 static IEntity s_RDFVL_Subject;
 static ref RDF_LidarVisualizer s_RDFVL_Visualizer;
+static ref RDF_AdaptiveSampleStrategy s_RDFVL_Strategy;
 static ref RDF_LidarScanner s_RDFVL_Scanner;
 static string s_RDFVL_ExportPath = "";
 static float s_RDFVL_ScanAccum = 0.0;
@@ -134,7 +135,8 @@ modded class SCR_BaseGameMode
             settings.m_Range = s_Range;
             settings.m_UpdateInterval = s_UpdateInterval;
             s_RDFVL_Scanner = new RDF_LidarScanner(settings);
-            s_RDFVL_Scanner.SetSampleStrategy(new RDF_RectangularFOVSampleStrategy(s_RectFOVHorizDeg, s_RectFOVVertDeg, s_RectCols, s_RectRows));
+            s_RDFVL_Strategy = new RDF_AdaptiveSampleStrategy();
+            s_RDFVL_Scanner.SetSampleStrategy(s_RDFVL_Strategy);
             if (!s_ScanWithoutVisualization)
             {
                 s_RDFVL_Visualizer = new RDF_LidarVisualizer();
@@ -218,6 +220,40 @@ modded class SCR_BaseGameMode
         {
             if (!s_RDFVL_Subject || !s_RDFVL_Scanner)
                 return;
+            // Update adaptive strategy with current speed (m/s)
+            if (s_RDFVL_Strategy)
+            {
+                vector subjectVel = vector.Zero;
+                SCR_CharacterControllerComponent charCtrl = SCR_CharacterControllerComponent.Cast(s_RDFVL_Subject.FindComponent(SCR_CharacterControllerComponent));
+                if (charCtrl)
+                {
+                    subjectVel = charCtrl.GetVelocity();
+                }
+                else
+                {
+                    World world = GetGame().GetWorld();
+                    if (world)
+                    {
+                        float currentTime = world.GetWorldTime();
+                        vector pos = s_RDFVL_Subject.GetOrigin();
+                        if (s_RDFVL_LastSubjectTime >= 0.0)
+                        {
+                            float dtMs = currentTime - s_RDFVL_LastSubjectTime;
+                            if (dtMs > 10.0)
+                            {
+                                float dtSec = dtMs / 1000.0;
+                                subjectVel = (pos - s_RDFVL_LastSubjectPos) / dtSec;
+                            }
+                        }
+                        s_RDFVL_LastSubjectPos = pos;
+                        s_RDFVL_LastSubjectTime = currentTime;
+                    }
+                }
+                vector horizVel = subjectVel;
+                horizVel[1] = 0.0;
+                float speedMps = horizVel.Length();
+                s_RDFVL_Strategy.SetSpeedMps(speedMps);
+            }
             s_RDFVL_ScanAccum = s_RDFVL_ScanAccum + timeSlice;
             s_RDFVL_FlushAccum = s_RDFVL_FlushAccum + timeSlice;
             ref array<ref RDF_LidarSample> samples = null;
