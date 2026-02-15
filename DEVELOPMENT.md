@@ -168,6 +168,17 @@ New: `scripts/tests/lidar_sample_checks.c` contains basic self-checks for sampli
 - **Unified config entry**: use `RDF_LidarDemoConfig` presets + `SetDemoConfig()` / `StartWithConfig()` instead of separate demo classes.
 - **Bootstrap**: `RDF_LidarAutoBootstrap.c` provides optional auto-start at `OnGameStart` (default disabled).
 - **Point-cloud-only**: `SetDemoRenderWorld(false)` or `m_RenderWorld = false` draws a black quad and disables scene rendering so only the point cloud is visible.
+- **Batched mesh rendering**: enable batched triangle-mesh rendering via `RDF_LidarAutoRunner.SetDemoUseBatchedMesh(true)` to reduce `Shape.CreateTris` calls (recommended for high ray-count / large point-cloud scenes). The vehicle bootstrap exposes `s_UseBatchedMesh` in `scripts/Game/Examples/SimpleVehicle/RDF_VehicleLidarBootstrap.c` and provides runtime setters `RDF_VehicleLidarBootstrap_SetUseBatchedMesh(bool)` / `RDF_VehicleLidarBootstrap_GetUseBatchedMesh()`.
+
+```c
+// demo-level toggle
+RDF_LidarAutoRunner.SetDemoUseBatchedMesh(true);
+
+// vehicle bootstrap runtime control
+RDF_VehicleLidarBootstrap_SetUseBatchedMesh(true);
+bool usingBatched = RDF_VehicleLidarBootstrap_GetUseBatchedMesh();
+Print("Using batched mesh: " + usingBatched);
+```
 
 ## Performance recommendations
 - Limit `m_RayCount` to reasonable values (default 512) and reduce at runtime when possible.

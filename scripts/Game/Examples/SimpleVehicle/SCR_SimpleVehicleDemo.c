@@ -12,6 +12,8 @@ class SCR_SimpleVehicleDemo : SCR_BaseGameMode
             RDF_LidarDemoConfig cfg = RDF_LidarDemoConfig.CreateDefault(256);
             cfg.m_RenderWorld = true;
             cfg.m_Verbose = true;
+            // 开启批量三角网格渲染以减少 Shape 调用（高射线计数/大点云场景推荐）
+            RDF_LidarAutoRunner.SetDemoUseBatchedMesh(true);
 
             // 应用并启动演示 / Apply and start demo
             RDF_LidarAutoRunner.StartWithConfig(cfg);

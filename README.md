@@ -43,6 +43,8 @@ Examples/SimpleVehicle/               # 示例与文档 / Examples and docs
   **Configurable**: Ray count, range, scan rate, CSV output, visualization toggle.
 - **CSV 导出**：扩展格式，支持缓冲写入，可配合 `tools/lidar_viewer` 离线查看
   **CSV export**: Extended format with buffered writes, works with `tools/lidar_viewer` for offline viewing.
+- **批量网格渲染**：支持通过 `RDF_LidarAutoRunner.SetDemoUseBatchedMesh(true)` 启用以减少 Shape 调用；在高射线计数/大点云场景推荐  
+  **Batched mesh rendering**: Can be enabled via `RDF_LidarAutoRunner.SetDemoUseBatchedMesh(true)` to reduce Shape.CreateTris calls — recommended for high ray-count / large point-cloud scenes.
 
 ---
 

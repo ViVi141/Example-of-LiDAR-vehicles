@@ -15,8 +15,8 @@ Shows how to launch a minimal LiDAR example in the scene using the built-in `RDF
 **快速提示 / Quick tip**: 若希望示例随项目一起被其他人轻松运行，请确保 `scripts/Game/Examples/SimpleVehicle/` 已包含在 `addon.gproj` 的编译输入中。  
 Ensure `scripts/Game/Examples/SimpleVehicle/` is included in `addon.gproj` for others to run the example.
 
-**车载 Bootstrap / Vehicle Bootstrap**: `RDF_VehicleLidarBootstrap.c` 在玩家上车时自动启用 LiDAR（1024 射线、30 m、10 Hz、120°×19° 矩形视场），下车停用。配置与说明见 `SpawnBind/README.md`。  
-Enables LiDAR when player enters vehicle (1024 rays, 30 m, 10 Hz, 120°×19° rect FOV); disables when exiting. See `SpawnBind/README.md` for config.
+**车载 Bootstrap / Vehicle Bootstrap**: `RDF_VehicleLidarBootstrap.c` 在玩家上车时自动启用 LiDAR（1024 射线、30 m、10 Hz、120°×19° 矩形视场），下车停用。可在文件顶部修改 `s_UseBatchedMesh` 或在运行时调用 `RDF_VehicleLidarBootstrap_SetUseBatchedMesh(bool)` 切换批量网格渲染（推荐在高射线计数场景启用）。配置与说明见 `SpawnBind/README.md`。  
+Enables LiDAR when player enters vehicle (1024 rays, 30 m, 10 Hz, 120°×19° rect FOV); disables when exiting. You can edit `s_UseBatchedMesh` at the top of the file or call `RDF_VehicleLidarBootstrap_SetUseBatchedMesh(bool)` at runtime to toggle batched-mesh rendering (recommended for high ray-count scenarios). See `SpawnBind/README.md` for config.
 
 ---
 
@@ -38,6 +38,7 @@ Enables LiDAR when player enters vehicle (1024 rays, 30 m, 10 Hz, 120°×19° re
 
 ```c
 RDF_LidarAutoRunner.SetDemoConfig(RDF_LidarDemoConfig.CreateDefault(256));
+RDF_LidarAutoRunner.SetDemoUseBatchedMesh(true); // 启用批量网格渲染以提高高射线计数场景的可视化性能
 RDF_LidarAutoRunner.SetDemoEnabled(true);
 ```
 

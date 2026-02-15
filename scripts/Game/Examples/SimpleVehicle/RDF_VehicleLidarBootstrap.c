@@ -35,6 +35,10 @@ static int s_RectRows = 16;
 // 扫描但不可视化 / Scan without visualization
 static bool s_ScanWithoutVisualization = false;
 
+// 是否使用批量三角网格渲染（推荐：高射线计数/大点云场景）
+// Use batched mesh rendering (recommended for high ray-count / large point-cloud scenes)
+static bool s_UseBatchedMesh = true;
+
 // 是否输出 CSV 到磁盘 / Output CSV to disk
 static bool s_OutputCSV = false;
 
@@ -61,6 +65,18 @@ static float s_RDFVL_LastSubjectTime = -1.0;
 static bool s_RDFVL_InitPending = false;
 static ref array<ref RDF_LidarSample> s_RDFVL_ScanOnlySamples;
 static ref array<ref RDF_LidarSample> s_RDFVL_LastSamples;
+
+// 运行时配置 API：允许在控制台或脚本中切换 bootstrap 行为
+void RDF_VehicleLidarBootstrap_SetUseBatchedMesh(bool use)
+{
+    s_UseBatchedMesh = use;
+    Print("RDF: Vehicle bootstrap SetUseBatchedMesh = " + use.ToString());
+}
+
+bool RDF_VehicleLidarBootstrap_GetUseBatchedMesh()
+{
+    return s_UseBatchedMesh;
+}
 
 modded class SCR_BaseGameMode
 {
@@ -127,6 +143,8 @@ modded class SCR_BaseGameMode
                 vs.m_DrawRays = true;
                 vs.m_RenderWorld = true;
                 vs.m_UseDistanceGradient = false;
+                // 根据 bootstrap 配置决定是否启用批量三角网格渲染（减少 Shape.CreateTris 调用）
+                vs.m_UseBatchedMesh = s_UseBatchedMesh;
                 s_RDFVL_Visualizer.SetColorStrategy(new RDF_ThreeColorStrategy(0xFF00FF00, 0xFFFFFF00, 0xFFFF0000));
             }
             else
