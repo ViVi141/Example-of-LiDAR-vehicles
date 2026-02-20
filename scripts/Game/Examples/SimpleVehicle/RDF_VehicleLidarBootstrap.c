@@ -41,7 +41,22 @@ static bool s_DedupeEntitiesForHUD = true;
 
 // 可选：开启/关闭扫描调试输出（控制台）
 // Optional: enable/disable verbose scan debug output
-static bool s_DebugScanOutput = true;
+static bool s_DebugScanOutput = false; // 已禁用默认的扫描调试日志
+
+// 使用基于物理体积的“无体积实体”检测（优先于字符串启发式）
+// Use volume-based detection for volueless entities (preferred over string heuristics)
+static bool s_UseVolumeCheckForVolueless = true; // 推荐开启以提高可靠性
+static float s_VolumeThreshold_m3 = 0.001;    // 体积阈值（立方米）；低于此值视为“无体积”
+
+// 是否为被过滤实体显示单独的 3D 命中点/射线（调试用）
+// Show hit points/rays for filtered samples (debug visualization)
+static bool s_ShowFilteredVisuals = false; // 默认关闭（改为可视化被保留的物体）
+static int s_FilteredVisualColor = 0xFF00FFFF; // 过滤项可视化颜色（ARGB）
+
+// 是否为被保留（非过滤）实体显示单独的 3D 命中点/射线
+// Show hit points/rays for kept (displayed) samples
+static bool s_ShowKeptVisuals = true; // 默认开启（用户请求）
+static int s_KeptVisualColor = 0xFF00FF00; // 保留项可视化颜色（ARGB，默认绿色）
 
 // 是否使用批量三角网格渲染（推荐：高射线计数/大点云场景）
 // Use batched mesh rendering (recommended for high ray-count / large point-cloud scenes)
@@ -61,6 +76,7 @@ static int s_TargetMode = 1;
 static bool s_RDFVL_Active = false;
 static IEntity s_RDFVL_Subject;
 static ref RDF_LidarVisualizer s_RDFVL_Visualizer;
+static ref RDF_LidarVisualizer s_RDFVL_HUDVisualizer; // 用于在关闭全局可视化时，仅渲染 HUD 显示点
 static ref RDF_AdaptiveSampleStrategy s_RDFVL_Strategy;
 static ref RDF_LidarScanner s_RDFVL_Scanner;
 static string s_RDFVL_ExportPath = "";
@@ -87,6 +103,105 @@ bool RDF_VehicleLidarBootstrap_GetUseBatchedMesh()
 {
     return s_UseBatchedMesh;
 }
+
+// 运行时开关：是否启用基于体积的无体积检测
+void RDF_VehicleLidarBootstrap_SetUseVolumeCheck(bool use)
+{
+    s_UseVolumeCheckForVolueless = use;
+    Print("RDF: Vehicle bootstrap SetUseVolumeCheck = " + use.ToString());
+}
+
+bool RDF_VehicleLidarBootstrap_GetUseVolumeCheck()
+{
+    return s_UseVolumeCheckForVolueless;
+}
+
+// 运行时接口：体积阈值（立方米）
+void RDF_VehicleLidarBootstrap_SetVolumeThreshold(float m3)
+{
+    s_VolumeThreshold_m3 = m3;
+    Print("RDF: Vehicle bootstrap SetVolumeThreshold_m3 = " + m3.ToString());
+}
+
+float RDF_VehicleLidarBootstrap_GetVolumeThreshold()
+{
+    return s_VolumeThreshold_m3;
+}
+
+// 运行时开关：是否显示被过滤样本的 3D 可视化（点/射线）
+void RDF_VehicleLidarBootstrap_SetShowFilteredVisuals(bool show)
+{
+    s_ShowFilteredVisuals = show;
+    Print("RDF: Vehicle bootstrap SetShowFilteredVisuals = " + show.ToString());
+}
+
+bool RDF_VehicleLidarBootstrap_GetShowFilteredVisuals()
+{
+    return s_ShowFilteredVisuals;
+}
+
+// 运行时：设置被过滤项可视化颜色（ARGB）
+void RDF_VehicleLidarBootstrap_SetFilteredVisualColor(int argb)
+{
+    s_FilteredVisualColor = argb;
+    Print("RDF: Vehicle bootstrap SetFilteredVisualColor = 0x" + argb.ToString(16));
+}
+
+int RDF_VehicleLidarBootstrap_GetFilteredVisualColor()
+{
+    return s_FilteredVisualColor;
+}
+
+// 运行时开关/颜色：保留项可视化
+void RDF_VehicleLidarBootstrap_SetShowKeptVisuals(bool show)
+{
+    s_ShowKeptVisuals = show;
+    Print("RDF: Vehicle bootstrap SetShowKeptVisuals = " + show.ToString());
+
+    if (!show)
+    {
+        // 清除 HUD visualizer 的残留 shapes 并清空 HUD
+        array<ref RDF_LidarSample> _empty = new array<ref RDF_LidarSample>();
+        RDF_LidarHUD.FeedSamples(_empty);
+        if (s_RDFVL_HUDVisualizer)
+        {
+            if (s_RDFVL_Subject)
+                s_RDFVL_HUDVisualizer.RenderWithSamples(s_RDFVL_Subject, _empty);
+            else
+                s_RDFVL_HUDVisualizer.RenderWithSamples(null, _empty);
+        }
+    }
+}
+
+bool RDF_VehicleLidarBootstrap_GetShowKeptVisuals()
+{
+    return s_ShowKeptVisuals;
+}
+
+void RDF_VehicleLidarBootstrap_SetKeptVisualColor(int argb)
+{
+    s_KeptVisualColor = argb;
+    Print("RDF: Vehicle bootstrap SetKeptVisualColor = 0x" + argb.ToString(16));
+}
+
+int RDF_VehicleLidarBootstrap_GetKeptVisualColor()
+{
+    return s_KeptVisualColor;
+}
+
+// 运行时工具：立即清除 HUD 与 3D 可视化残留（可在调试或HUD未刷新时调用）
+void RDF_VehicleLidarBootstrap_ClearVisuals()
+{
+    array<ref RDF_LidarSample> _empty = new array<ref RDF_LidarSample>();
+    RDF_LidarHUD.FeedSamples(_empty);
+
+    if (s_RDFVL_Visualizer)
+        s_RDFVL_Visualizer.RenderWithSamples(s_RDFVL_Subject, _empty);
+    if (s_RDFVL_HUDVisualizer)
+        s_RDFVL_HUDVisualizer.RenderWithSamples(s_RDFVL_Subject, _empty);
+
+    Print("RDF: Cleared HUD and visualizer shapes");
+} 
 
 // 试图从实体的 EntityPrefabData 中读取更可读的 prefab 名称（若存在），
 // 返回 name（首选 prefab 名）和 tree（预制体层级路径，若需要）。
@@ -123,6 +238,22 @@ bool RDF_GetQueryTargetInfo(IEntity ent, out string name, out string tree)
     }
 
     return (name != "" || !tree.IsEmpty());
+}
+
+// Helper: check whether an entity type name indicates a volueless/logic/marker entity
+bool RDF_IsVoluelessTypeName(string typeName)
+{
+    if (!typeName || typeName == "")
+        return false;
+
+    array<string> keywords = {"trigger","Trigger","marker","Marker","waypoint","Waypoint","sound","Sound","light","Light","hint","Hint","logic","Logic","volume","Volume","nav","Nav"};
+    for (int i = 0; i < keywords.Count(); i++)
+    {
+        if (typeName.Contains(keywords.Get(i)))
+            return true;
+    }
+
+    return false;
 }
 
 modded class SCR_BaseGameMode
@@ -250,7 +381,20 @@ modded class SCR_BaseGameMode
             // 隐藏 HUD / Hide HUD
             RDF_LidarHUD.Hide();
             Print("RDF: LiDAR HUD hidden (vehicle exited)");
-            
+
+            // 清理 3D 可视化与 HUD（确保 Shape/Widgets 被移除）
+            array<ref RDF_LidarSample> _empty = new array<ref RDF_LidarSample>();
+            RDF_LidarHUD.FeedSamples(_empty); // 清空 HUD 内容
+            if (s_RDFVL_Visualizer && s_RDFVL_Subject)
+                s_RDFVL_Visualizer.RenderWithSamples(s_RDFVL_Subject, _empty);
+            else if (s_RDFVL_Visualizer)
+                s_RDFVL_Visualizer.RenderWithSamples(null, _empty);
+
+            if (s_RDFVL_HUDVisualizer && s_RDFVL_Subject)
+                s_RDFVL_HUDVisualizer.RenderWithSamples(s_RDFVL_Subject, _empty);
+            else if (s_RDFVL_HUDVisualizer)
+                s_RDFVL_HUDVisualizer.RenderWithSamples(null, _empty);
+
             if (s_RDFVL_CSVBuffer && s_RDFVL_CSVBuffer.Count() > 0 && s_RDFVL_ExportPath != "")
             {
                 FileHandle f = FileIO.OpenFile(s_RDFVL_ExportPath, FileMode.APPEND);
@@ -269,6 +413,8 @@ modded class SCR_BaseGameMode
             s_RDFVL_Subject = null;
             s_RDFVL_Scanner = null;
             s_RDFVL_Visualizer = null;
+            // 清理 HUD visualizer（若存在）
+            s_RDFVL_HUDVisualizer = null;
             s_RDFVL_ScanAccum = 0.0;
             s_RDFVL_FrameIndex = 0;
             s_RDFVL_LastSubjectTime = -1.0;
@@ -355,6 +501,7 @@ modded class SCR_BaseGameMode
             if (didScan && samples && samples.Count() > 0)
             {
                 array<ref RDF_LidarSample> filteredSamples = new array<ref RDF_LidarSample>();
+                array<ref RDF_LidarSample> filteredOutSamples = new array<ref RDF_LidarSample>(); // 被过滤的样本（单独可视化）
 
                 // 用于实体去重与统计 / containers for dedupe & stats
                 array<IEntity> seenEntities = new array<IEntity>();
@@ -384,10 +531,47 @@ else if (entityName && entityName != "")
 else
     readableName = typeName;
 
-                    // 跳过地形类实体
+                    // 跳过地形类实体（同时记录以便单独可视化）
                     bool isTerrain = typeName.Contains("Terrain") || typeName.Contains("Ground");
                     if (isTerrain)
+                    {
+                        filteredOutSamples.Insert(s);
                         continue;
+                    }
+
+                    // 跳过无体积实体：优先使用基于物理体积的检测（若启用），回退到字符串启发式与原点接近判断
+                    bool isVolueless = false;
+
+                    if (s_UseVolumeCheckForVolueless)
+                    {
+                        // 使用引擎工具计算碰撞器体积（返回 0 表示无碰撞或非常小）
+                        float vol = MeshObjectVolumeCalculator.GetVolumeFromColliders(s.m_Entity, EPhysicsLayerDefs.FireGeometry);
+                        if (vol <= s_VolumeThreshold_m3)
+                            isVolueless = true;
+                    }
+
+                    // 若体积检测未确定（或被禁用），使用原先的启发式规则作为回退
+                    if (!isVolueless)
+                    {
+                        if (RDF_IsVoluelessTypeName(typeName))
+                        {
+                            isVolueless = true;
+                        }
+                        else
+                        {
+                            vector entOrigin = s.m_Entity.GetOrigin();
+                            float hitToOrigin = (s.m_HitPos - entOrigin).Length();
+                            // 使用已存在的空字符串检测模式代替对 string 的直接 null/布尔取反判断
+                            if (!(prefabName && prefabName != "") && !(entityName && entityName != "") && hitToOrigin < 0.15)
+                                isVolueless = true;
+                        }
+                    }
+
+                    if (isVolueless)
+                    {
+                        filteredOutSamples.Insert(s);
+                        continue;
+                    }
 
                     // 保留所有非地形样本（不对射线本身去重）；仅在用于显示/标题时对实体去重
                     // 将样本加入 filteredSamples（供 HUD/CSV/可视化使用）
@@ -421,7 +605,7 @@ else
                     }
                 }
 
-                // 打印摘要与去重实体清单（若启用调试输出）
+                // 打印摘要与去重实体清单（仅在启用调试输出时打印）
                 int total = samples.Count();
                 int displayed;
                 if (s_DedupeEntitiesForHUD)
@@ -429,7 +613,10 @@ else
                 else
                     displayed = filteredSamples.Count();
                 int filtered = total - displayed;
-                Print(string.Format("RDF: Scan summary — total=%1 displayed=%2 filtered=%3", total.ToString(), displayed.ToString(), filtered.ToString()));
+                if (s_DebugScanOutput)
+                {
+                    Print(string.Format("RDF: Scan summary — total=%1 displayed=%2 filtered=%3", total.ToString(), displayed.ToString(), filtered.ToString()));
+                }
 
                 if (s_DebugScanOutput)
                 {
@@ -482,6 +669,103 @@ else
                     else
                     {
                         Print("RDF: No displayable entities this scan (all filtered).");
+                    }
+                }
+
+                // 构建用于 HUD 可视化的样本集（若启用实体去重，则只取每个实体的最近命中样本）
+                array<ref RDF_LidarSample> hudSamples = new array<ref RDF_LidarSample>();
+                if (s_DedupeEntitiesForHUD && seenEntities.Count() > 0)
+                {
+                    for (int ei = 0; ei < seenEntities.Count(); ei++)
+                    {
+                        IEntity ent = seenEntities.Get(ei);
+                        float bestD = 1e9;
+                        ref RDF_LidarSample bestS = null;
+                        for (int si = 0; si < filteredSamples.Count(); si++)
+                        {
+                            RDF_LidarSample fs = filteredSamples.Get(si);
+                            if (fs && fs.m_Entity == ent)
+                            {
+                                if (fs.m_Distance < bestD)
+                                {
+                                    bestD = fs.m_Distance;
+                                    bestS = fs;
+                                }
+                            }
+                        }
+                        if (bestS)
+                            hudSamples.Insert(bestS);
+                    }
+                }
+                else
+                {
+                    hudSamples = filteredSamples; // 无去重，直接使用全部保留样本
+                }
+
+                // 单独渲染被过滤的样本（命中点 + 射线） — 仅当启用可视化并允许时
+                if (s_ShowFilteredVisuals && filteredOutSamples.Count() > 0)
+                {
+                    if (s_RDFVL_Visualizer)
+                    {
+                        RDF_LidarVisualSettings vs = s_RDFVL_Visualizer.GetSettings();
+                        bool oldDrawPoints = vs.m_DrawPoints;
+                        bool oldDrawRays = vs.m_DrawRays;
+
+                        // 临时开启点/射线显示并设置专用颜色策略
+                        vs.m_DrawPoints = true;
+                        vs.m_DrawRays = true;
+                        s_RDFVL_Visualizer.SetColorStrategy(new RDF_ThreeColorStrategy(s_FilteredVisualColor, s_FilteredVisualColor, s_FilteredVisualColor));
+
+                        s_RDFVL_Visualizer.RenderWithSamples(s_RDFVL_Subject, filteredOutSamples);
+
+                        // 恢复默认策略与设置（bootstrap 的默认颜色）
+                        s_RDFVL_Visualizer.SetColorStrategy(new RDF_ThreeColorStrategy(0xFF00FF00, 0xFFFFFF00, 0xFFFF0000));
+                        vs.m_DrawPoints = oldDrawPoints;
+                        vs.m_DrawRays = oldDrawRays;
+                    }
+                }
+
+                // 单独渲染被保留的样本（命中点 + 射线） — 用户要求：对被保留物体进行可视化
+                if (s_ShowKeptVisuals && filteredSamples.Count() > 0)
+                {
+                    // 优先使用全局 visualizer；若全局被禁用（s_RDFVL_Visualizer == null），使用 HUD 专用 visualizer
+                    RDF_LidarVisualizer useViz = s_RDFVL_Visualizer;
+                    bool usingHudViz = false;
+                    if (!useViz)
+                    {
+                        if (!s_RDFVL_HUDVisualizer)
+                            s_RDFVL_HUDVisualizer = new RDF_LidarVisualizer();
+                        useViz = s_RDFVL_HUDVisualizer;
+                        usingHudViz = true;
+                    }
+
+                    if (useViz)
+                    {
+                        RDF_LidarVisualSettings vs2 = useViz.GetSettings();
+                        bool oldDrawPoints2 = vs2.m_DrawPoints;
+                        bool oldDrawRays2 = vs2.m_DrawRays;
+                        bool oldRenderWorld = vs2.m_RenderWorld;
+
+                        vs2.m_DrawPoints = true;
+                        vs2.m_DrawRays = true;
+                        // 在世界空间渲染 HUD 中显示的点/射线（以便在场景中可见）
+                        vs2.m_RenderWorld = true;
+                        vs2.m_UseDistanceGradient = false;
+                        vs2.m_UseBatchedMesh = s_UseBatchedMesh;
+
+                        useViz.SetColorStrategy(new RDF_ThreeColorStrategy(s_KeptVisualColor, s_KeptVisualColor, s_KeptVisualColor));
+
+                        Print("RDF: Render HUD samples count=" + hudSamples.Count().ToString() + " usingHUDViz=" + usingHudViz.ToString());
+                        useViz.RenderWithSamples(s_RDFVL_Subject, hudSamples);
+
+                        // 恢复设置
+                        useViz.SetColorStrategy(new RDF_ThreeColorStrategy(0xFF00FF00, 0xFFFFFF00, 0xFFFF0000));
+                        vs2.m_DrawPoints = oldDrawPoints2;
+                        vs2.m_DrawRays = oldDrawRays2;
+                        vs2.m_RenderWorld = oldRenderWorld;
+
+                        // 如果使用的是临时 HUD visualizer 并且主 visualizer 被禁用，则保留 hud visualizer（继续重用）
+                        // 若你希望在不显示时销毁它，可以在 SetShowKeptVisuals(false) 时清理。
                     }
                 }
 
@@ -549,9 +833,23 @@ else
                 else
                     RDF_LidarHUD.SetMode(s_RDFVL_ModeLabelBase);
 
-                // 将去重后的样本推送给 HUD（HUD 仍然期望 samples 列表）
-                if (filteredSamples.Count() > 0)
-                    RDF_LidarHUD.FeedSamples(filteredSamples);
+                // 将（已去重或完整的）HUD 用样本推送给 HUD，保证 HUD 与 3D 可视化一致
+                RDF_LidarHUD.FeedSamples(hudSamples); // 始终推送（空数组将清空 HUD）
+
+                // 若本次扫描没有任何命中（didScan 且 samples 为空或全部被过滤），确保清理 3D visualizer 的残留
+                // 这避免 HUD 在从有命中切换到“无命中”时仍保留上一帧信息的情况
+                if (didScan && (!samples || samples.Count() == 0 || hudSamples.Count() == 0))
+                {
+                    array<ref RDF_LidarSample> _empty = new array<ref RDF_LidarSample>();
+                    // 强制清空 visualizers（主/ HUD 专用）
+                    if (s_RDFVL_Visualizer)
+                        s_RDFVL_Visualizer.RenderWithSamples(s_RDFVL_Subject, _empty);
+                    if (s_RDFVL_HUDVisualizer)
+                        s_RDFVL_HUDVisualizer.RenderWithSamples(s_RDFVL_Subject, _empty);
+
+                    // 清除缓存的上次样本，防止帧间重绘
+                    s_RDFVL_LastSamples = null;
+                }
             }
             if (!samples)
                 return;
