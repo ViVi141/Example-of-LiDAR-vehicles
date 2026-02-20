@@ -836,6 +836,16 @@ else
                 // 将（已去重或完整的）HUD 用样本推送给 HUD，保证 HUD 与 3D 可视化一致
                 RDF_LidarHUD.FeedSamples(hudSamples); // 始终推送（空数组将清空 HUD）
 
+                // 若 HUD 本次没有样本，强制重建 HUD（Hide→Show→Feed）以避免 HUD 保留上一帧条目的实现差异
+                if (hudSamples.Count() == 0)
+                {
+                    RDF_LidarHUD.Hide();
+                    RDF_LidarHUD.Show();
+                    RDF_LidarHUD.SetDisplayRange(s_Range);
+                    RDF_LidarHUD.SetMode(s_RDFVL_ModeLabelBase);
+                    RDF_LidarHUD.FeedSamples(hudSamples); // 再次确保 HUD 为空
+                }
+
                 // 若本次扫描没有任何命中（didScan 且 samples 为空或全部被过滤），确保清理 3D visualizer 的残留
                 // 这避免 HUD 在从有命中切换到“无命中”时仍保留上一帧信息的情况
                 if (didScan && (!samples || samples.Count() == 0 || hudSamples.Count() == 0))
