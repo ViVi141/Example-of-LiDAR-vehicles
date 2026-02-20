@@ -21,14 +21,14 @@ static int s_SessionCounter = 0;
 static int s_RayCount = 4096;
 
 // 探测距离（米）/ Range (m)
-static float s_Range = 30.0;
+static float s_Range = 210.0;
 
 // 扫描间隔（秒），10 Hz / Scan interval (s), 10 Hz
 static float s_UpdateInterval = 0.1;
 
-// 矩形视场：60° 水平（前向±30°），30° 垂直（±15°）/ Rect FOV: 60° horiz (forward ±30°), 30° vert (±15°)
-static float s_RectFOVHorizDeg = 60.0;
-static float s_RectFOVVertDeg = 30.0;
+// 矩形视场：120° 水平（前向±60°），25.4° 垂直（±12.7°）/ Rect FOV: 120° horiz (forward ±60°), 25.4° vert (±12.7°)
+static float s_RectFOVHorizDeg = 120.0;
+static float s_RectFOVVertDeg = 25.4;
 static int s_RectCols = 64;
 static int s_RectRows = 64;  // 增加行数以匹配4096射线（64x64）
 
@@ -202,59 +202,6 @@ void RDF_VehicleLidarBootstrap_ClearVisuals()
 
     Print("RDF: Cleared HUD and visualizer shapes");
 } 
-
-// 试图从实体的 EntityPrefabData 中读取更可读的 prefab 名称（若存在），
-// 返回 name（首选 prefab 名）和 tree（预制体层级路径，若需要）。
-bool RDF_GetQueryTargetInfo(IEntity ent, out string name, out string tree)
-{
-    name = "";
-    tree = "";
-
-    if (!ent)
-        return false;
-
-    EntityPrefabData prefabData = ent.GetPrefabData();
-    if (!prefabData)
-        return false;
-
-    name = prefabData.GetPrefabName();
-    tree = "";
-
-    BaseContainer cont = prefabData.GetPrefab();
-    while (cont)
-    {
-        string contName = cont.GetName();
-        if (!contName.IsEmpty())
-        {
-            if (!tree.IsEmpty())
-                tree = tree + "\n";
-            tree = tree + contName;
-
-            if (name.IsEmpty())
-                name = contName;
-        }
-
-        cont = cont.GetAncestor();
-    }
-
-    return (name != "" || !tree.IsEmpty());
-}
-
-// Helper: check whether an entity type name indicates a volueless/logic/marker entity
-bool RDF_IsVoluelessTypeName(string typeName)
-{
-    if (!typeName || typeName == "")
-        return false;
-
-    array<string> keywords = {"trigger","Trigger","marker","Marker","waypoint","Waypoint","sound","Sound","light","Light","hint","Hint","logic","Logic","volume","Volume","nav","Nav"};
-    for (int i = 0; i < keywords.Count(); i++)
-    {
-        if (typeName.Contains(keywords.Get(i)))
-            return true;
-    }
-
-    return false;
-}
 
 modded class SCR_BaseGameMode
 {
@@ -503,204 +450,35 @@ modded class SCR_BaseGameMode
                 array<ref RDF_LidarSample> filteredSamples = new array<ref RDF_LidarSample>();
                 array<ref RDF_LidarSample> filteredOutSamples = new array<ref RDF_LidarSample>(); // 被过滤的样本（单独可视化）
 
-                // 用于实体去重与统计 / containers for dedupe & stats
-                array<IEntity> seenEntities = new array<IEntity>();
-                array<float> seenDistances = new array<float>();
-                array<string> seenTypeNames = new array<string>();
-
                 for (int i = 0; i < samples.Count(); i++)
                 {
                     RDF_LidarSample s = samples.Get(i);
                     if (!s || !s.m_Hit || !s.m_Entity)
                         continue;
 
-                    // 获取实体类型/预制名/实例名/距离（prefab > instance name > type 作为回退）
-                    typename entityType = s.m_Entity.Type();
-                    string typeName = entityType.ToString();
-                    string entityName = s.m_Entity.GetName();
-                    float dist = s.m_Distance;
-
-// 本地友好名（prefab/实例名/类型回退）
-string readableName = "";
-string prefabName = "";
-string prefabTree = "";
-if (RDF_GetQueryTargetInfo(s.m_Entity, prefabName, prefabTree) && prefabName != "")
-    readableName = prefabName;
-else if (entityName && entityName != "")
-    readableName = entityName;
-else
-    readableName = typeName;
-
-                    // 跳过地形类实体（同时记录以便单独可视化）
-                    bool isTerrain = typeName.Contains("Terrain") || typeName.Contains("Ground");
-                    if (isTerrain)
+                    // 地形实体不支持 GetVolumeFromColliders，直接过滤 / Terrain entities crash GetVolumeFromColliders, skip early
+                    string typeName = s.m_Entity.Type().ToString();
+                    if (typeName.Contains("Terrain") || typeName.Contains("VonTerrain") || typeName.Contains("TerrainEntity"))
                     {
                         filteredOutSamples.Insert(s);
                         continue;
                     }
 
-                    // 跳过无体积实体：优先使用基于物理体积的检测（若启用），回退到字符串启发式与原点接近判断
-                    bool isVolueless = false;
-
-                    if (s_UseVolumeCheckForVolueless)
-                    {
-                        // 使用引擎工具计算碰撞器体积（返回 0 表示无碰撞或非常小）
-                        float vol = MeshObjectVolumeCalculator.GetVolumeFromColliders(s.m_Entity, EPhysicsLayerDefs.FireGeometry);
-                        if (vol <= s_VolumeThreshold_m3)
-                            isVolueless = true;
-                    }
-
-                    // 若体积检测未确定（或被禁用），使用原先的启发式规则作为回退
-                    if (!isVolueless)
-                    {
-                        if (RDF_IsVoluelessTypeName(typeName))
-                        {
-                            isVolueless = true;
-                        }
-                        else
-                        {
-                            vector entOrigin = s.m_Entity.GetOrigin();
-                            float hitToOrigin = (s.m_HitPos - entOrigin).Length();
-                            // 使用已存在的空字符串检测模式代替对 string 的直接 null/布尔取反判断
-                            if (!(prefabName && prefabName != "") && !(entityName && entityName != "") && hitToOrigin < 0.15)
-                                isVolueless = true;
-                        }
-                    }
-
-                    if (isVolueless)
+                    // 体积过滤 / Filter by volume
+                    float vol = MeshObjectVolumeCalculator.GetVolumeFromColliders(s.m_Entity, EPhysicsLayerDefs.FireGeometry);
+                    if (vol <= s_VolumeThreshold_m3)
                     {
                         filteredOutSamples.Insert(s);
                         continue;
                     }
 
-                    // 保留所有非地形样本（不对射线本身去重）；仅在用于显示/标题时对实体去重
-                    // 将样本加入 filteredSamples（供 HUD/CSV/可视化使用）
                     filteredSamples.Insert(s);
-
-                    // 若能从 prefab 读取更友好的名称则优先写入样本字段，供 HUD/CSV 使用（对每个样本都写入）
-                    string prefabNameOut = "";
-                    string prefabTreeOut = "";
-                    if (RDF_GetQueryTargetInfo(s.m_Entity, prefabNameOut, prefabTreeOut) && prefabNameOut != "")
-                        s.m_ColliderName = prefabNameOut;
-                    else if (readableName && readableName != "")
-                        s.m_ColliderName = readableName;
-
-                    // 显示去重（仅用于构建显示清单，不影响 samples 本身）
-                    int idx = seenEntities.Find(s.m_Entity);
-                    if (s_DedupeEntitiesForHUD)
-                    {
-                        if (idx == -1)
-                        {
-                            // 首次遇到该实体：记录以供后续在 HUD/日志 中显示
-                            seenEntities.Insert(s.m_Entity);
-                            seenDistances.Insert(dist);
-                            seenTypeNames.Insert(typeName);
-                        }
-                        else
-                        {
-                            // 如果当前射线更近，可以更新记录的距离（可选）
-                            if (dist < seenDistances.Get(idx))
-                                seenDistances.Set(idx, dist);
-                        }
-                    }
-                }
-
-                // 打印摘要与去重实体清单（仅在启用调试输出时打印）
-                int total = samples.Count();
-                int displayed;
-                if (s_DedupeEntitiesForHUD)
-                    displayed = seenEntities.Count();
-                else
-                    displayed = filteredSamples.Count();
-                int filtered = total - displayed;
-                if (s_DebugScanOutput)
-                {
-                    Print(string.Format("RDF: Scan summary — total=%1 displayed=%2 filtered=%3", total.ToString(), displayed.ToString(), filtered.ToString()));
                 }
 
                 if (s_DebugScanOutput)
-                {
-                    if (displayed > 0)
-                    {
-                        Print("RDF: Displayed entities:");
-                        int listCount;
-                        if (s_DedupeEntitiesForHUD)
-                            listCount = seenEntities.Count();
-                        else
-                            listCount = filteredSamples.Count();
+                    Print(string.Format("RDF: Scan summary — total=%1 kept=%2", samples.Count().ToString(), filteredSamples.Count().ToString()));
 
-                        for (int j = 0; j < listCount; j++)
-                        {
-                            if (s_DedupeEntitiesForHUD)
-                            {
-                                string tn = seenTypeNames.Get(j);
-                                IEntity e = seenEntities.Get(j);
-                                string prefabOut = "";
-                                string treeOut = "";                                string displayLabel = "";                                if (RDF_GetQueryTargetInfo(e, prefabOut, treeOut) && prefabOut != "")
-                                    displayLabel = prefabOut;
-                                else
-                                {
-                                    string en = e.GetName();
-                                    if (en && en != "")
-                                        displayLabel = en;
-                                    else
-                                        displayLabel = tn;
-                                }
-                                float d = seenDistances.Get(j);
-                                Print(string.Format("RDF:  - %1 (%2) at %3m", displayLabel, tn, d));
-                            }
-                            else
-                            {
-                                RDF_LidarSample samp = filteredSamples.Get(j);
-                                if (samp && samp.m_Entity)
-                                {
-                                    string tn = samp.m_Entity.Type().ToString();
-                                    IEntity e = samp.m_Entity;
-                                    string prefab = e.GetName();
-                                    float d = samp.m_Distance;
-                                    string displayLabel = prefab;
-                                    if (!displayLabel || displayLabel == "")
-                                        displayLabel = tn;
-                                    Print(string.Format("RDF:  - %1 (%2) at %3m", displayLabel, tn, d));
-                                }
-                            }
-                        }
-                    }
-                    else
-                    {
-                        Print("RDF: No displayable entities this scan (all filtered).");
-                    }
-                }
-
-                // 构建用于 HUD 可视化的样本集（若启用实体去重，则只取每个实体的最近命中样本）
-                array<ref RDF_LidarSample> hudSamples = new array<ref RDF_LidarSample>();
-                if (s_DedupeEntitiesForHUD && seenEntities.Count() > 0)
-                {
-                    for (int ei = 0; ei < seenEntities.Count(); ei++)
-                    {
-                        IEntity ent = seenEntities.Get(ei);
-                        float bestD = 1e9;
-                        ref RDF_LidarSample bestS = null;
-                        for (int si = 0; si < filteredSamples.Count(); si++)
-                        {
-                            RDF_LidarSample fs = filteredSamples.Get(si);
-                            if (fs && fs.m_Entity == ent)
-                            {
-                                if (fs.m_Distance < bestD)
-                                {
-                                    bestD = fs.m_Distance;
-                                    bestS = fs;
-                                }
-                            }
-                        }
-                        if (bestS)
-                            hudSamples.Insert(bestS);
-                    }
-                }
-                else
-                {
-                    hudSamples = filteredSamples; // 无去重，直接使用全部保留样本
-                }
+                array<ref RDF_LidarSample> hudSamples = filteredSamples;
 
                 // 单独渲染被过滤的样本（命中点 + 射线） — 仅当启用可视化并允许时
                 if (s_ShowFilteredVisuals && filteredOutSamples.Count() > 0)
@@ -769,69 +547,10 @@ else
                     }
                 }
 
-                // 更新 HUD 标题以包含前几个已去重实体的 prefab/名称（便于在 HUD 上快速识别目标）
-                string names = "";
-                int maxShown = 4;
-                int listCountForMode;
-                if (s_DedupeEntitiesForHUD)
-                    listCountForMode = seenEntities.Count();
-                else
-                    listCountForMode = filteredSamples.Count();
-                for (int k = 0; k < Math.Min(maxShown, listCountForMode); k++)
-                {
-                    string label = "";
-                    if (s_DedupeEntitiesForHUD)
-                    {
-                        IEntity e = seenEntities.Get(k);
-                        string pn = "";
-                        string tr = "";
-                        if (RDF_GetQueryTargetInfo(e, pn, tr) && pn != "")
-                            label = pn;
-                        else
-                        {
-                            string en = e.GetName();
-                            if (en && en != "")
-                                label = en;
-                            else
-                                label = seenTypeNames.Get(k);
-                        }
-                    }
-                    else
-                    {
-                        RDF_LidarSample samp = filteredSamples.Get(k);
-                        if (samp && samp.m_Entity)
-                        {
-                            string pn = "";
-                            string tr = "";
-                            if (RDF_GetQueryTargetInfo(samp.m_Entity, pn, tr) && pn != "")
-                                label = pn;
-                            else
-                            {
-                                string en = samp.m_Entity.GetName();
-                                if (en && en != "")
-                                    label = en;
-                                else
-                                    label = samp.m_Entity.Type().ToString();
-                            }
-                        }
-                    }
-
-                    if (label != "")
-                    {
-                        if (names == "")
-                            names = label;
-                        else
-                            names = names + ", " + label;
-                    }
-                }
-
                 if (s_RDFVL_ModeLabelBase == "")
                     s_RDFVL_ModeLabelBase = "Vehicle " + s_RayCount.ToString();
 
-                if (names != "")
-                    RDF_LidarHUD.SetMode(s_RDFVL_ModeLabelBase + " | " + names);
-                else
-                    RDF_LidarHUD.SetMode(s_RDFVL_ModeLabelBase);
+                RDF_LidarHUD.SetMode(s_RDFVL_ModeLabelBase);
 
                 // 将（已去重或完整的）HUD 用样本推送给 HUD，保证 HUD 与 3D 可视化一致
                 RDF_LidarHUD.FeedSamples(hudSamples); // 始终推送（空数组将清空 HUD）
