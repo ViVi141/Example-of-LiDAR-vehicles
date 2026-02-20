@@ -6,7 +6,7 @@ class SCR_SimpleVehicleDemo : SCR_BaseGameMode
     private float m_LastHitRate = 0.0;
     private float m_AdaptInterval = 2.0;
     private float m_Elapsed = 0.0;
-    private int m_RayCount = 256;
+    private int m_RayCount = 4096;  // 高密度扫描
     private float m_ScanRange = 50.0;
     private ref RDF_AdaptiveSampleStrategy m_AdaptiveStrategy;
     private ref RDF_LidarScanner m_Scanner;
@@ -36,8 +36,8 @@ class SCR_SimpleVehicleDemo : SCR_BaseGameMode
 
             m_Visualizer = new RDF_LidarVisualizer();
             RDF_LidarVisualSettings vs = m_Visualizer.GetSettings();
-            vs.m_DrawPoints = true;
-            vs.m_DrawRays = true;
+            vs.m_DrawPoints = false;  // 关闭点云绘制，使用 HUD 显示
+            vs.m_DrawRays = false;    // 关闭射线绘制，使用 HUD 显示
             vs.m_ShowHitsOnly = false;
             vs.m_RenderWorld = true;
             vs.m_UseDistanceGradient = false;
@@ -69,10 +69,10 @@ class SCR_SimpleVehicleDemo : SCR_BaseGameMode
                     float hitRate = hitCount / (float)samples.Count();
                     m_LastHitRate = hitRate;
                     // 根据命中率调整射线数量（示例：命中率低则增加射线，高则减少）
-                    if (hitRate < 0.3 && m_RayCount < 1024)
-                        m_RayCount += 64;
-                    else if (hitRate > 0.7 && m_RayCount > 128)
-                        m_RayCount -= 64;
+                    if (hitRate < 0.3 && m_RayCount < 8192)
+                        m_RayCount += 256;
+                    else if (hitRate > 0.7 && m_RayCount > 2048)
+                        m_RayCount -= 256;
                     if (m_Scanner)
                         m_Scanner.GetSettings().m_RayCount = m_RayCount;
                     Print("Adaptive: hitRate=" + hitRate.ToString() + ", rayCount=" + m_RayCount.ToString());

@@ -21,21 +21,21 @@ class SCR_SpawnAndBindVehicleDemo : SCR_BaseGameMode
             m_Active = true;
             m_Subject = vehicle;
 
-            // 创建 scanner / visualizer 并设置参数（512 条射线，半径 50，全球采样）
-            // Create scanner/visualizer and set params (512 rays, radius 50, global sampling)
+            // 创建 scanner / visualizer 并设置参数（4096 条射线，半径 50，前向60°×30°扫描）
+            // Create scanner/visualizer and set params (4096 rays, radius 50, forward 60°×30°)
             m_Scanner = new RDF_LidarScanner();
             RDF_LidarSettings s = m_Scanner.GetSettings();
-            s.m_RayCount = 512;
+            s.m_RayCount = 4096;
             s.m_Range = 50.0;
             s.m_UpdateInterval = 0.5; // 每 0.5s 一次扫描（示例）/ Scan every 0.5s (example)
 
-            // 明确使用全球均匀采样策略 / Use global uniform sample strategy
-            m_Scanner.SetSampleStrategy(new RDF_UniformSampleStrategy());
+            // 使用矩形前向FOV采样策略（60°×30°）/ Use rectangular forward FOV (60°×30°)
+            m_Scanner.SetSampleStrategy(new RDF_RectangularFOVSampleStrategy(60.0, 30.0, 64, 64));
 
             m_Visualizer = new RDF_LidarVisualizer();
             RDF_LidarVisualSettings vs = m_Visualizer.GetSettings();
-            vs.m_DrawPoints = true;
-            vs.m_DrawRays = true;
+            vs.m_DrawPoints = false;  // 关闭点云绘制，使用 HUD 显示
+            vs.m_DrawRays = false;    // 关闭射线绘制，使用 HUD 显示
             vs.m_RenderWorld = true; // 世界空间渲染 / World-space render
             vs.m_UseDistanceGradient = false; // 使用自定义三端颜色策略 / Use custom 3-color strategy
 

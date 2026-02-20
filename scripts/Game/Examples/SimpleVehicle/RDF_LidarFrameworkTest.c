@@ -33,7 +33,7 @@ void RDF_RunFrameworkTest()
 
     RDF_LidarScanner scanner = new RDF_LidarScanner();
     RDF_LidarSettings s = scanner.GetSettings();
-    s.m_RayCount = 64;
+    s.m_RayCount = 4096;  // 高密度扫描测试
     s.m_Range = 50.0;
     array<ref RDF_LidarSample> samples = new array<ref RDF_LidarSample>();
     scanner.Scan(subject, samples);

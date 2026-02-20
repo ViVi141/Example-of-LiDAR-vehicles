@@ -37,8 +37,10 @@ Examples/SimpleVehicle/               # 示例与文档 / Examples and docs
 
 - **上车自动 LiDAR**：玩家进入载具后自动开始扫描，下车停用
   **Auto LiDAR on vehicle**: Scanning starts when player enters vehicle, stops when exiting.
-- **矩形视场**：120°×19° 前向 FOV，减少射向天空的射线
-  **Rectangular FOV**: 120°×19° forward FOV, fewer rays toward sky.
+- **前向扫描**：60°×30° 前向视场，专注车辆前方区域
+  **Forward scanning**: 60°×30° forward FOV, focused on front area of vehicle.
+- **智能识别**：使用 `Type()` 方法识别实体类型，自动过滤地形，仅显示车辆、建筑等目标
+  **Smart recognition**: Uses `Type()` method to identify entity types, auto-filters terrain, displays only vehicles, buildings, etc.
 - **可配置**：射线数、探测距离、扫描频率、CSV 输出、可视化开关
   **Configurable**: Ray count, range, scan rate, CSV output, visualization toggle.
 - **CSV 导出**：扩展格式，支持缓冲写入，可配合 `tools/lidar_viewer` 离线查看
@@ -52,11 +54,12 @@ Examples/SimpleVehicle/               # 示例与文档 / Examples and docs
 
 | 参数 / Parameter | 值 / Value |
 |------|-----|
-| 射线数 / Ray count | 1024（64×16） |
+| 射线数 / Ray count | **4096（64×64）** 🆕 |
 | 探测距离 / Range | 30 m |
-| 扫描频率 / Scan rate | 10 Hz |
-| 视场角 / FOV | 120°×19° |
-| 角分辨率 / Angular resolution | 约 1.875°×1.1875° |
+| 扫描频率 / Scan rate | 10 Hz (约 ~40,960 pts/s) |
+| 视场角 / FOV | **60°×30°（前向）** 🆕 |
+| 角分辨率 / Angular resolution | 约 0.9375°×0.46875° |
+| 3D 可视化 / 3D Visualization | **关闭（仅 HUD）** 🆕 |
 
 ---
 
@@ -66,8 +69,11 @@ Examples/SimpleVehicle/               # 示例与文档 / Examples and docs
    Add addon to Workbench project and build.
 2. 启动游戏，进入载具
    Launch game and enter a vehicle.
-3. LiDAR 自动启用（可修改 `RDF_VehicleLidarBootstrap.c` 顶部配置）
-   LiDAR enables automatically (edit top of `RDF_VehicleLidarBootstrap.c` to change config).
+3. **HUD 自动显示** — 无需任何操作，LiDAR 和 HUD 会在进入载具时自动启动
+   **HUD auto-displays** — No action needed, LiDAR and HUD start automatically when entering vehicle.
+
+**⚠️ 注意**: 当前配置使用 4096 条射线，不绘制 3D 点云/射线，**仅通过 HUD 可视化，完全自动化**。详见 [HUD_SETUP.md](HUD_SETUP.md)。  
+**⚠️ Note**: Current config uses 4096 rays with no 3D point cloud/ray rendering, **HUD visualization only, fully automated**. See [HUD_SETUP.md](HUD_SETUP.md).
 
 **游戏模式 / Game mode**: 使用 `modded SCR_BaseGameMode` 的 EOnFrame 驱动，支持所有基于 SCR_BaseGameMode 的场景（工作台、Conflict、Campaign 等）。Uses modded SCR_BaseGameMode EOnFrame; supports all SCR_BaseGameMode-based scenarios.
 
@@ -92,4 +98,5 @@ See `tools/lidar_viewer/README.md` for details.
 
 - [API.md](API.md) — API 摘要 / API reference
 - [DEVELOPMENT.md](DEVELOPMENT.md) — 开发指南 / Developer guide
+- [HUD_SETUP.md](HUD_SETUP.md) — **HUD 配置与使用指南** 🆕 / HUD setup guide
 - [Examples/SimpleVehicle/SpawnBind/README.md](Examples/SimpleVehicle/SpawnBind/README.md) — 车载 Bootstrap 配置说明 / Vehicle Bootstrap config

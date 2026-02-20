@@ -1,18 +1,18 @@
-// 智能驾驶采样策略：前向高密度、侧向中密度、后向低密度
+// 前向扫描策略：100% 前向集中扫描（60°×30° FOV）
 class RDF_AdaptiveSampleStrategy : RDF_LidarSampleStrategy
 {
-    protected float m_FrontHorizFov = 120.0;
-    protected float m_FrontVertFov = 20.0;
-    protected float m_SideHorizFov = 90.0;
-    protected float m_SideVertFov = 22.0;
-    protected float m_RearHorizFov = 120.0;
-    protected float m_RearVertFov = 20.0;
+    protected float m_FrontHorizFov = 60.0;
+    protected float m_FrontVertFov = 30.0;
+    protected float m_SideHorizFov = 0.0;
+    protected float m_SideVertFov = 0.0;
+    protected float m_RearHorizFov = 0.0;
+    protected float m_RearVertFov = 0.0;
     protected float m_PitchBiasDeg = 4.0;
     protected float m_MinPitchDeg = -3.0;
 
-    protected float m_FrontRatio = 0.70;
-    protected float m_SideRatio = 0.20;
-    protected float m_RearRatio = 0.10;
+    protected float m_FrontRatio = 1.00;
+    protected float m_SideRatio = 0.00;
+    protected float m_RearRatio = 0.00;
     protected int m_MinSideRays = 24;
     protected int m_MinRearRays = 16;
 
@@ -25,31 +25,11 @@ class RDF_AdaptiveSampleStrategy : RDF_LidarSampleStrategy
     void SetSpeedMps(float speedMps)
     {
         m_SpeedMps = Math.Max(0.0, speedMps);
-        // Speed-aware distribution: higher speed -> more front focus
-        if (m_SpeedMps >= 20.0)
-        {
-            m_FrontRatio = 0.80;
-            m_SideRatio = 0.15;
-            m_RearRatio = 0.05;
-        }
-        else if (m_SpeedMps >= 10.0)
-        {
-            m_FrontRatio = 0.74;
-            m_SideRatio = 0.18;
-            m_RearRatio = 0.08;
-        }
-        else if (m_SpeedMps >= 3.0)
-        {
-            m_FrontRatio = 0.70;
-            m_SideRatio = 0.20;
-            m_RearRatio = 0.10;
-        }
-        else
-        {
-            m_FrontRatio = 0.58;
-            m_SideRatio = 0.26;
-            m_RearRatio = 0.16;
-        }
+        // 前向扫描模式：无论速度如何，全部集中在前方
+        // Forward-only mode: always 100% front focus regardless of speed
+        m_FrontRatio = 1.00;
+        m_SideRatio = 0.00;
+        m_RearRatio = 0.00;
     }
 
     override vector BuildDirection(int index, int count)
