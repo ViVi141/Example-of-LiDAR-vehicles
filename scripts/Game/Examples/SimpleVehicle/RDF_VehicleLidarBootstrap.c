@@ -55,7 +55,7 @@ static int s_FilteredVisualColor = 0xFF00FFFF; // 过滤项可视化颜色（ARG
 
 // 是否为被保留（非过滤）实体显示单独的 3D 命中点/射线
 // Show hit points/rays for kept (displayed) samples
-static bool s_ShowKeptVisuals = true; // 默认开启（用户请求）
+static bool s_ShowKeptVisuals = false; // 关闭 3D 射线/命中点，仅保留 HUD 显示
 static int s_KeptVisualColor = 0xFF00FF00; // 保留项可视化颜色（ARGB，默认绿色）
 
 // 是否使用批量三角网格渲染（推荐：高射线计数/大点云场景）
@@ -91,6 +91,96 @@ static bool s_RDFVL_InitPending = false;
 static ref array<ref RDF_LidarSample> s_RDFVL_ScanOnlySamples;
 static ref array<ref RDF_LidarSample> s_RDFVL_LastSamples;
 static string s_RDFVL_ModeLabelBase = ""; // HUD base mode label (e.g. "Vehicle 4096")
+
+// HUD 雷达比例尺（显示距离，独立于扫描距离）/ HUD radar display range (independent of scan range)
+static float s_HUDDisplayRange = 0.0;      // 0 = 待初始化（进车时同步 s_Range）/ 0 = uninit, synced from s_Range on enter
+static float s_HUDZoomFactor = 1.5;        // 每次缩放倍率 / Zoom factor per key press
+static float s_HUDZoomMin = 10.0;          // 最小显示距离（米）/ Min display range (m)
+static float s_HUDZoomMax = 2000.0;        // 最大显示距离（米）/ Max display range (m)
+static bool s_HUDZoomInPending = false;    // Q 键事件标志 / Q key event flag
+static bool s_HUDZoomOutPending = false;   // E 键事件标志 / E key event flag
+static bool s_HUDZoomListenersRegistered = false; // 是否已注册监听器 / Listeners registered flag
+
+// Q 键回调：缩小 HUD 显示范围 / Q key callback: zoom in HUD range
+void RDF_VehicleLidarBootstrap_OnZoomIn(float value, EActionTrigger reason)
+{
+    s_HUDZoomInPending = true;
+}
+
+// E 键回调：放大 HUD 显示范围 / E key callback: zoom out HUD range
+void RDF_VehicleLidarBootstrap_OnZoomOut(float value, EActionTrigger reason)
+{
+    s_HUDZoomOutPending = true;
+}
+
+// 调试：打印所有可用 Context 和 Action 名称（仅首次调用）
+// Debug: print all available context and action names (first call only)
+static bool s_RDF_DebugInputDumped = false;
+void RDF_VehicleLidarBootstrap_DumpInputContexts()
+{
+    if (s_RDF_DebugInputDumped)
+        return;
+    s_RDF_DebugInputDumped = true;
+    InputManager im = GetGame().GetInputManager();
+    if (!im)
+    {
+        Print("RDF: InputManager is null!");
+        return;
+    }
+    // 通过 CreateUserBinding 获取 InputBinding 以枚举 Context
+    // Use CreateUserBinding to get InputBinding for context enumeration
+    InputBinding ib = im.CreateUserBinding();
+    if (!ib)
+    {
+        Print("RDF: InputBinding is null!");
+        return;
+    }
+    array<string> contexts = new array<string>();
+    ib.GetContexts(contexts);
+    Print("RDF: === Available Input Contexts (" + contexts.Count().ToString() + ") ===");
+    for (int i = 0; i < contexts.Count(); i++)
+        Print("RDF: Context[" + i.ToString() + "] = " + contexts.Get(i));
+
+    // 打印当前 InputManager 中所有 Action 名称（遍历索引）
+    // Print all action names in InputManager
+    int actionCount = im.GetActionCount();
+    Print("RDF: === Available Actions (" + actionCount.ToString() + ") ===");
+    for (int j = 0; j < actionCount; j++)
+        Print("RDF: Action[" + j.ToString() + "] = " + im.GetActionName(j));
+}
+
+// 注册 Q/E 按键监听器 / Register Q/E key listeners
+void RDF_VehicleLidarBootstrap_RegisterZoomListeners()
+{
+    if (s_HUDZoomListenersRegistered)
+        return;
+    InputManager im = GetGame().GetInputManager();
+    if (!im)
+        return;
+
+    // 调试：首次注册时打印所有 Context 和 Action，用于确认正确名称
+    // Debug: dump all contexts and actions on first registration to identify correct names
+    RDF_VehicleLidarBootstrap_DumpInputContexts();
+
+    im.AddActionListener("CharacterLeanLeft",  EActionTrigger.DOWN, RDF_VehicleLidarBootstrap_OnZoomIn);
+    im.AddActionListener("CharacterLeanRight", EActionTrigger.DOWN, RDF_VehicleLidarBootstrap_OnZoomOut);
+    s_HUDZoomListenersRegistered = true;
+    Print("RDF: HUD zoom listeners registered (Q=zoom in, E=zoom out)");
+}
+
+// 注销 Q/E 按键监听器 / Unregister Q/E key listeners
+void RDF_VehicleLidarBootstrap_UnregisterZoomListeners()
+{
+    if (!s_HUDZoomListenersRegistered)
+        return;
+    InputManager im = GetGame().GetInputManager();
+    if (!im)
+        return;
+    im.RemoveActionListener("CharacterLeanLeft",  EActionTrigger.DOWN, RDF_VehicleLidarBootstrap_OnZoomIn);
+    im.RemoveActionListener("CharacterLeanRight", EActionTrigger.DOWN, RDF_VehicleLidarBootstrap_OnZoomOut);
+    s_HUDZoomListenersRegistered = false;
+    Print("RDF: HUD zoom listeners unregistered");
+}
 
 // 运行时配置 API：允许在控制台或脚本中切换 bootstrap 行为
 void RDF_VehicleLidarBootstrap_SetUseBatchedMesh(bool use)
@@ -308,8 +398,12 @@ modded class SCR_BaseGameMode
                 s_RDFVL_CSVBuffer = null;
             
             // 自动启动 HUD（无需控制台命令）/ Auto-start HUD (no console commands needed)
+            s_HUDDisplayRange = s_Range; // 初始化 HUD 显示范围与扫描范围一致 / Init HUD range = scan range
+            s_HUDZoomInPending = false;
+            s_HUDZoomOutPending = false;
+            RDF_VehicleLidarBootstrap_RegisterZoomListeners();
             RDF_LidarHUD.Show();
-            RDF_LidarHUD.SetDisplayRange(s_Range);
+            RDF_LidarHUD.SetDisplayRange(s_HUDDisplayRange);
             s_RDFVL_ModeLabelBase = "Vehicle " + s_RayCount.ToString();
             RDF_LidarHUD.SetMode(s_RDFVL_ModeLabelBase);
             Print("RDF: LiDAR HUD auto-started with " + s_RayCount.ToString() + " rays");
@@ -365,12 +459,44 @@ modded class SCR_BaseGameMode
             s_RDFVL_ScanAccum = 0.0;
             s_RDFVL_FrameIndex = 0;
             s_RDFVL_LastSubjectTime = -1.0;
+            s_HUDDisplayRange = 0.0;
+            s_HUDZoomInPending = false;
+            s_HUDZoomOutPending = false;
+            RDF_VehicleLidarBootstrap_UnregisterZoomListeners();
         }
 
         if (s_RDFVL_Active && s_RDFVL_Scanner && s_RDFVL_Subject)
         {
             if (!s_RDFVL_Subject || !s_RDFVL_Scanner)
                 return;
+
+            // Q/E 缩放 HUD 雷达比例尺（由 AddActionListener 回调设置标志位，此处读取并处理）
+            // Q/E zoom HUD radar scale (flag set by AddActionListener callback, processed here)
+            //
+            // 每帧强制激活 CharacterLeanLeft/Right 所在的 Context，确保其在载具内也能触发
+            // Force-activate the lean context every frame so listeners fire while in vehicle
+            InputManager _im = GetGame().GetInputManager();
+            if (_im)
+                _im.ActivateContext("CharacterMovementContext", 1);
+            if (s_HUDZoomInPending || s_HUDZoomOutPending)
+            {
+                float _cur;
+                if (s_HUDDisplayRange > 0.0)
+                    _cur = s_HUDDisplayRange;
+                else
+                    _cur = s_Range;
+                float _next;
+                if (s_HUDZoomInPending)
+                    _next = Math.Clamp(_cur / s_HUDZoomFactor, s_HUDZoomMin, s_HUDZoomMax);
+                else
+                    _next = Math.Clamp(_cur * s_HUDZoomFactor, s_HUDZoomMin, s_HUDZoomMax);
+                s_HUDDisplayRange = _next;
+                RDF_LidarHUD.SetDisplayRange(s_HUDDisplayRange);
+                s_HUDZoomInPending = false;
+                s_HUDZoomOutPending = false;
+                Print("RDF: HUD display range -> " + s_HUDDisplayRange.ToString() + " m");
+            }
+
             // Update adaptive strategy with current speed (m/s)
             if (s_RDFVL_Strategy)
             {
