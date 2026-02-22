@@ -302,17 +302,11 @@ modded class SCR_BaseGameMode
             return;
         if (g_RDF_StatusPrinter)
             g_RDF_StatusPrinter.Tick(timeSlice);
-        PlayerController ctrl = GetGame().GetPlayerController();
-        if (!ctrl)
-            return;
-        IEntity playerSubject = ctrl.GetControlledEntity();
+        IEntity playerSubject = RDF_LidarSubjectResolver.ResolveLocalSubject(false);
         if (!playerSubject)
             return;
-        IEntity vehicle = null;
-        ChimeraCharacter character = ChimeraCharacter.Cast(playerSubject);
-        if (character)
-            vehicle = CompartmentAccessComponent.GetVehicleIn(character);
-        bool isInVehicle = (vehicle != null && playerSubject != null && vehicle != playerSubject);
+        IEntity vehicleOrSubject = RDF_LidarSubjectResolver.ResolveLocalSubject(true);
+        bool isInVehicle = (vehicleOrSubject != null && playerSubject != null && vehicleOrSubject != playerSubject);
         IEntity subject = null;
         bool shouldRun = false;
         if (s_TargetMode == 0)
@@ -322,12 +316,12 @@ modded class SCR_BaseGameMode
         }
         else if (s_TargetMode == 1)
         {
-            subject = vehicle;
+            subject = vehicleOrSubject;
             shouldRun = isInVehicle;
         }
         else
         {
-            subject = vehicle;
+            subject = vehicleOrSubject;
             if (!subject)
                 subject = playerSubject;
             shouldRun = isInVehicle || s_TestOnFoot;
@@ -348,6 +342,8 @@ modded class SCR_BaseGameMode
             settings.m_RayCount = s_RayCount;
             settings.m_Range = s_Range;
             settings.m_UpdateInterval = s_UpdateInterval;
+            // API: m_TraceTargetMode 0=仅地形 1=全部 2=仅实体；2 时扫描阶段即排除地形，无需事后过滤 / 0=terrain only 1=all 2=entities only
+            settings.m_TraceTargetMode = 2;
             s_RDFVL_Scanner = new RDF_LidarScanner(settings);
             s_RDFVL_Strategy = new RDF_AdaptiveSampleStrategy();
             s_RDFVL_Scanner.SetSampleStrategy(s_RDFVL_Strategy);
@@ -390,7 +386,8 @@ modded class SCR_BaseGameMode
                     Print("RDF: CSV file open failed.");
                 }
             }
-            s_RDFVL_ScanAccum = s_UpdateInterval;
+            // 延迟首帧扫描，避免上车后首帧执行 4096 射线导致引擎崩溃 / Delay first scan to avoid engine crash on first frame after enter vehicle
+            s_RDFVL_ScanAccum = 0.0;
             s_RDFVL_FlushAccum = 0.0;
             if (s_OutputCSV)
                 s_RDFVL_CSVBuffer = new array<string>();
@@ -570,67 +567,17 @@ modded class SCR_BaseGameMode
                 }
             }
             
-            // 每次扫描完成后自动更新 HUD：过滤地形并按实体去重 / Auto-update HUD: filter terrain and dedupe entities
+            // 每次扫描完成后自动更新 HUD：过滤完全交给 API（m_TraceTargetMode=2 排除地形，GetHitsInRange 按距离过滤）/ Filtering delegated to API
             if (didScan && samples && samples.Count() > 0)
             {
-                array<ref RDF_LidarSample> filteredSamples = new array<ref RDF_LidarSample>();
-                array<ref RDF_LidarSample> filteredOutSamples = new array<ref RDF_LidarSample>(); // 被过滤的样本（单独可视化）
-
-                for (int i = 0; i < samples.Count(); i++)
-                {
-                    RDF_LidarSample s = samples.Get(i);
-                    if (!s || !s.m_Hit || !s.m_Entity)
-                        continue;
-
-                    // 地形实体不支持 GetVolumeFromColliders，直接过滤 / Terrain entities crash GetVolumeFromColliders, skip early
-                    string typeName = s.m_Entity.Type().ToString();
-                    if (typeName.Contains("Terrain") || typeName.Contains("VonTerrain") || typeName.Contains("TerrainEntity"))
-                    {
-                        filteredOutSamples.Insert(s);
-                        continue;
-                    }
-
-                    // 体积过滤 / Filter by volume
-                    float vol = MeshObjectVolumeCalculator.GetVolumeFromColliders(s.m_Entity, EPhysicsLayerDefs.FireGeometry);
-                    if (vol <= s_VolumeThreshold_m3)
-                    {
-                        filteredOutSamples.Insert(s);
-                        continue;
-                    }
-
-                    filteredSamples.Insert(s);
-                }
+                array<ref RDF_LidarSample> hudSamples = new array<ref RDF_LidarSample>();
+                RDF_LidarSampleUtils.GetHitsInRange(samples, 0.0, s_Range, hudSamples);
 
                 if (s_DebugScanOutput)
-                    Print(string.Format("RDF: Scan summary — total=%1 kept=%2", samples.Count().ToString(), filteredSamples.Count().ToString()));
-
-                array<ref RDF_LidarSample> hudSamples = filteredSamples;
-
-                // 单独渲染被过滤的样本（命中点 + 射线） — 仅当启用可视化并允许时
-                if (s_ShowFilteredVisuals && filteredOutSamples.Count() > 0)
-                {
-                    if (s_RDFVL_Visualizer)
-                    {
-                        RDF_LidarVisualSettings vs = s_RDFVL_Visualizer.GetSettings();
-                        bool oldDrawPoints = vs.m_DrawPoints;
-                        bool oldDrawRays = vs.m_DrawRays;
-
-                        // 临时开启点/射线显示并设置专用颜色策略
-                        vs.m_DrawPoints = true;
-                        vs.m_DrawRays = true;
-                        s_RDFVL_Visualizer.SetColorStrategy(new RDF_ThreeColorStrategy(s_FilteredVisualColor, s_FilteredVisualColor, s_FilteredVisualColor));
-
-                        s_RDFVL_Visualizer.RenderWithSamples(s_RDFVL_Subject, filteredOutSamples);
-
-                        // 恢复默认策略与设置（bootstrap 的默认颜色）
-                        s_RDFVL_Visualizer.SetColorStrategy(new RDF_ThreeColorStrategy(0xFF00FF00, 0xFFFFFF00, 0xFFFF0000));
-                        vs.m_DrawPoints = oldDrawPoints;
-                        vs.m_DrawRays = oldDrawRays;
-                    }
-                }
+                    Print(string.Format("RDF: Scan summary — total=%1 kept=%2", samples.Count().ToString(), hudSamples.Count().ToString()));
 
                 // 单独渲染被保留的样本（命中点 + 射线） — 用户要求：对被保留物体进行可视化
-                if (s_ShowKeptVisuals && filteredSamples.Count() > 0)
+                if (s_ShowKeptVisuals && hudSamples.Count() > 0)
                 {
                     // 优先使用全局 visualizer；若全局被禁用（s_RDFVL_Visualizer == null），使用 HUD 专用 visualizer
                     RDF_LidarVisualizer useViz = s_RDFVL_Visualizer;
